@@ -28,6 +28,8 @@ fibonacci(3)
 | 🔁 **Async Support** | Safely traces `async`/`await` functions and `asyncio.gather` |
 | 🔒 **Depth Limiting** | Cap tracing depth with `max_depth` to reduce noise |
 | 📁 **File Export** | Redirect trace output to a file instead of the console |
+| 🔇 **Global Toggle** | `traceflow.disable()` / `traceflow.enable()` to control all tracing at runtime |
+| 🔬 **Variable Tracking** | `track_vars=True` to log every local variable assignment inside a function |
 
 ---
 
@@ -153,7 +155,7 @@ def safe_math(x, y):
 try:
     safe_math(10, 0)
 except ZeroDivisionError:
-    pass  # Exception is shown in the tree
+    pass
 ```
 
 ```
@@ -246,7 +248,92 @@ The file is appended to, so multiple runs accumulate in the same file.
 
 ---
 
-### 7. Keyword Arguments
+### 7. Global Enable / Disable
+
+Turn all tracing on or off at runtime without removing decorators. Functions still execute normally when tracing is disabled — only the output is suppressed.
+
+```python
+import traceflow
+from traceflow import watch
+
+@watch()
+def add(a, b):
+    return a + b
+
+add(1, 2)           # Trace is printed
+
+traceflow.disable()
+add(3, 4)           # No trace output, but returns 7 normally
+
+traceflow.enable()
+add(5, 6)           # Trace resumes
+```
+
+```
+add(1, 2)
+└── return 3 [0.0000s]
+
+add(5, 6)
+└── return 11 [0.0000s]
+```
+
+Also available: `traceflow.is_enabled()` to check current state.
+
+---
+
+### 8. Variable State Tracking
+
+See exactly how local variables change inside a function, line by line. Parameters are captured as a baseline and not logged (they're already visible in the call signature).
+
+```python
+@watch(track_vars=True)
+def compute(x, y):
+    total = x + y
+    doubled = total * 2
+    message = f"Result: {doubled}"
+    return doubled
+
+compute(5, 3)
+```
+
+```
+compute(5, 3)
+│   · total = 8
+│   · doubled = 16
+│   · message = 'Result: 16'
+└── return 16 [0.0002s]
+```
+
+Variable tracking inside a loop:
+
+```python
+@watch(track_vars=True)
+def sum_list(items):
+    total = 0
+    for val in items:
+        total += val
+    return total
+
+sum_list([10, 20, 30])
+```
+
+```
+sum_list([10, 20, 30])
+│   · total = 0
+│   · val = 10
+│   · total = 10
+│   · val = 20
+│   · total = 30
+│   · val = 30
+│   · total = 60
+└── return 60 [0.0001s]
+```
+
+> **Note:** Variable tracking uses `sys.settrace` and is only available for synchronous functions. It adds overhead and is best used for targeted debugging, not production code.
+
+---
+
+### 9. Keyword Arguments
 
 TraceFlow displays both positional and keyword arguments.
 
@@ -273,6 +360,15 @@ greet('Aarav', greeting='Hey', punctuation='!!')
 | `truncate_len` | `int` | `50` | Max characters for argument/return repr. `0` or `None` to disable |
 | `max_depth` | `int` | `None` | Stop tracing beyond this call depth. `None` for unlimited |
 | `export_path` | `str` | `None` | Write trace to a file instead of stdout |
+| `track_vars` | `bool` | `False` | Log local variable assignments inside the function (sync only) |
+
+### Global Functions
+
+| Function | Description |
+|---|---|
+| `traceflow.enable()` | Enable all tracing (default state) |
+| `traceflow.disable()` | Disable all tracing — decorated functions still run normally |
+| `traceflow.is_enabled()` | Returns `True` if tracing is currently active |
 
 ---
 
