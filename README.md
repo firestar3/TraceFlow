@@ -21,30 +21,23 @@ fibonacci(3)
 
 | Feature | Description |
 |---|---|
-| 🌳 **Call Trees** | Nested, indented tree visualization for every function call |
-| ⏱️ **Execution Time** | Per-call timing with `[0.0042s]` annotations |
-| 📐 **Truncation** | Smart character-limit truncation for large arguments and returns |
-| 💥 **Exception Tracing** | Captures and renders exceptions inline in the call tree |
-| 🔁 **Async Support** | Safely traces `async`/`await` functions and `asyncio.gather` |
-| 🔒 **Depth Limiting** | Cap tracing depth with `max_depth` to reduce noise |
-| 📁 **File Export** | Redirect trace output to a file instead of the console |
-| 🔇 **Global Toggle** | `traceflow.disable()` / `traceflow.enable()` to control all tracing at runtime |
-| 🔬 **Variable Tracking** | `track_vars=True` to log every local variable assignment inside a function |
+| **Call Trees** | Nested, indented tree visualization for every function call |
+| **Execution Time** | Per-call timing with `[0.0042s]` annotations |
+| **Truncation** | Smart character-limit truncation for large arguments and returns |
+| **Exception Tracing** | Captures and renders exceptions inline in the call tree |
+| **Async Support** | Safely traces `async`/`await` functions and `asyncio.gather` |
+| **Depth Limiting** | Cap tracing depth with `max_depth` to reduce noise |
+| **File Export** | Redirect trace output to a file instead of the console |
+| **Global Toggle** | `traceflow.disable()` / `traceflow.enable()` to control all tracing at runtime |
+| **Variable Tracking** | `track_vars=True` to log every local variable assignment inside a function |
 
 ---
 
 ## Installation
 
 ```bash
-# Clone the repo
-git clone https://github.com/Firestar3/TraceFlow.git
-cd TraceFlow
-
-# Install locally
-pip install .
+pip install traceflow-py
 ```
-
-Or simply drop the `traceflow/` folder into your project — no dependencies required.
 
 ---
 
