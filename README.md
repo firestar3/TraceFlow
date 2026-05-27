@@ -38,10 +38,6 @@ fibonacci(3)
 ```bash
 pip install traceflow-py
 
----
-
-## Quick Start
-
 ```python
 from traceflow import watch
 
