@@ -30,6 +30,7 @@ fibonacci(3)
 | **File Export** | Redirect trace output to a file instead of the console |
 | **Global Toggle** | `traceflow.disable()` / `traceflow.enable()` to control all tracing at runtime |
 | **Variable Tracking** | `track_vars=True` to log every local variable assignment inside a function |
+| **Capture Prints** | `capture_prints=True` to intercept `print()` calls and log them inline in the tree |
 
 ---
 
@@ -326,7 +327,30 @@ sum_list([10, 20, 30])
 
 ---
 
-### 9. Keyword Arguments
+### 9. Capture Prints (Console Interception)
+
+If your function contains standard `print()` statements, they normally break the trace tree formatting. By enabling `capture_prints=True`, TraceFlow will temporarily hijack `sys.stdout` and inject your print statements directly into the tree hierarchy.
+
+```python
+@watch(capture_prints=True)
+def process_data():
+    print("Loading data...")
+    print("Processing...")
+    return True
+
+process_data()
+```
+
+```
+process_data()
+│   · print: Loading data...
+│   · print: Processing...
+└── return True [0.0000s]
+```
+
+---
+
+### 10. Keyword Arguments
 
 TraceFlow displays both positional and keyword arguments.
 
@@ -354,6 +378,7 @@ greet('Aarav', greeting='Hey', punctuation='!!')
 | `max_depth` | `int` | `None` | Stop tracing beyond this call depth. `None` for unlimited |
 | `export_path` | `str` | `None` | Write trace to a file instead of stdout |
 | `track_vars` | `bool` | `False` | Log local variable assignments inside the function (sync only) |
+| `capture_prints` | `bool` | `False` | Intercept `print()` calls and log them inline in the tree |
 
 ### Global Functions
 

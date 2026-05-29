@@ -157,6 +157,19 @@ def sum_list(items):
 
 sum_list([10, 20, 30])
 
+# ── 11. Capture Prints ──────────────────────────────────────────
+print("\n" + "=" * 55)
+print("  11. CAPTURE PRINTS")
+print("=" * 55)
+
+@watch(capture_prints=True)
+def process_data():
+    print("Loading data...")
+    print("Processing...")
+    return True
+
+process_data()
+
 print("\n" + "=" * 55)
 print("  ALL TESTS COMPLETE")
 print("=" * 55)

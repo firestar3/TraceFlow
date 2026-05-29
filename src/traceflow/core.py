@@ -16,6 +16,60 @@ import sys as _sys
 _depth = contextvars.ContextVar('depth', default=0)
 _enabled = True
 
+_print_capturer_active = contextvars.ContextVar('print_capturer_active', default=None)
+
+class _MultiplexingStdout:
+    def __init__(self, original_stdout):
+        self._original = original_stdout
+        self._buffer = contextvars.ContextVar('stdout_buffer', default="")
+
+    def write(self, text):
+        active = _print_capturer_active.get()
+        if active is None:
+            self._original.write(text)
+            return
+
+        _print_capturer_active.set(None)
+        try:
+            log_func, prefix = active
+            buf = self._buffer.get() + text
+            if '\n' in buf:
+                lines = buf.split('\n')
+                for line in lines[:-1]:
+                    log_func(f"{prefix}· print: {line}")
+                self._buffer.set(lines[-1])
+            else:
+                self._buffer.set(buf)
+        finally:
+            _print_capturer_active.set(active)
+
+    def flush(self):
+        active = _print_capturer_active.get()
+        if active is None:
+            self._original.flush()
+            return
+        
+        _print_capturer_active.set(None)
+        try:
+            buf = self._buffer.get()
+            if buf:
+                log_func, prefix = active
+                log_func(f"{prefix}· print: {buf}")
+                self._buffer.set("")
+        finally:
+            _print_capturer_active.set(active)
+
+    def __getattr__(self, name):
+        return getattr(self._original, name)
+
+_original_stdout = None
+
+def _ensure_stdout_hook():
+    global _original_stdout
+    if _original_stdout is None:
+        _original_stdout = _sys.stdout
+        _sys.stdout = _MultiplexingStdout(_original_stdout)
+
 
 def enable():
     """Enable all tracing globally."""
@@ -36,7 +90,7 @@ def is_enabled():
 
 # ── Decorator ───────────────────────────────────────────────────
 
-def watch(func=None, *, track_time=True, truncate_len=50, max_depth=None, export_path=None, track_vars=False):
+def watch(func=None, *, track_time=True, truncate_len=50, max_depth=None, export_path=None, track_vars=False, capture_prints=False):
     """
     Decorator that traces function calls, producing an indented call tree.
 
@@ -46,6 +100,7 @@ def watch(func=None, *, track_time=True, truncate_len=50, max_depth=None, export
         max_depth (int): Stop tracing beyond this call depth. None for unlimited.
         export_path (str): Write trace output to this file instead of stdout.
         track_vars (bool): Log local variable assignments inside the function (sync only).
+        capture_prints (bool): Intercept print() calls and log them inline in the tree.
 
     Returns:
         The decorated function (sync or async wrapper).
@@ -72,7 +127,7 @@ def watch(func=None, *, track_time=True, truncate_len=50, max_depth=None, export
     """
     if func is None:
         return functools.partial(watch, track_time=track_time, truncate_len=truncate_len,
-                                 max_depth=max_depth, export_path=export_path, track_vars=track_vars)
+                                 max_depth=max_depth, export_path=export_path, track_vars=track_vars, capture_prints=capture_prints)
 
     # ── Helpers ─────────────────────────────────────────────────
 
@@ -178,13 +233,23 @@ def watch(func=None, *, track_time=True, truncate_len=50, max_depth=None, export
 
             start_time = _trace_call(args, kwargs, depth)
             token = _depth.set(depth + 1)
+            
+            print_token = None
+            if capture_prints:
+                _ensure_stdout_hook()
+                print_token = _print_capturer_active.set((_log, _continuation(depth) + "│   "))
+                
             # track_vars not supported for async (sys.settrace is thread-level)
             try:
                 result = await func(*args, **kwargs)
+                if print_token:
+                    _print_capturer_active.reset(print_token)
                 _depth.reset(token)
                 _trace_return(depth, start_time, result=result)
                 return result
             except Exception as e:
+                if print_token:
+                    _print_capturer_active.reset(print_token)
                 _depth.reset(token)
                 _trace_return(depth, start_time, exc=e)
                 raise
@@ -206,6 +271,11 @@ def watch(func=None, *, track_time=True, truncate_len=50, max_depth=None, export
             start_time = _trace_call(args, kwargs, depth)
             token = _depth.set(depth + 1)
 
+            print_token = None
+            if capture_prints:
+                _ensure_stdout_hook()
+                print_token = _print_capturer_active.set((_log, _continuation(depth) + "│   "))
+
             if track_vars:
                 old_trace = _sys.gettrace()
                 _sys.settrace(_make_var_tracer(depth))
@@ -215,12 +285,16 @@ def watch(func=None, *, track_time=True, truncate_len=50, max_depth=None, export
             except Exception as e:
                 if track_vars:
                     _sys.settrace(old_trace)
+                if print_token:
+                    _print_capturer_active.reset(print_token)
                 _depth.reset(token)
                 _trace_return(depth, start_time, exc=e)
                 raise
             else:
                 if track_vars:
                     _sys.settrace(old_trace)
+                if print_token:
+                    _print_capturer_active.reset(print_token)
                 _depth.reset(token)
                 _trace_return(depth, start_time, result=result)
                 return result
