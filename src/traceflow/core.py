@@ -18,6 +18,7 @@ _depth = contextvars.ContextVar('depth', default=0)
 _enabled = True
 
 _print_capturer_active = contextvars.ContextVar('print_capturer_active', default=None)
+_log_buffer = contextvars.ContextVar('log_buffer', default=None)
 
 class _MultiplexingStdout:
     def __init__(self, original_stdout):
@@ -91,7 +92,7 @@ def is_enabled():
 
 # ── Decorator ───────────────────────────────────────────────────
 
-def watch(func=None, *, track_time=True, truncate_len=50, max_depth=None, export_path=None, track_vars=False, capture_prints=False, track_memory=False):
+def watch(func=None, *, track_time=True, truncate_len=50, max_depth=None, export_path=None, track_vars=False, capture_prints=False, track_memory=False, logger=None, log_level=None):
     """
     Decorator that traces function calls, producing an indented call tree.
 
@@ -103,6 +104,8 @@ def watch(func=None, *, track_time=True, truncate_len=50, max_depth=None, export
         track_vars (bool): Log local variable assignments inside the function (sync only).
         capture_prints (bool): Intercept print() calls and log them inline in the tree.
         track_memory (bool): Track memory allocation delta and append to return line.
+        logger (logging.Logger): A standard Python logger to emit trace lines to.
+        log_level (int): The logging level to use (e.g., logging.DEBUG). Defaults to DEBUG if logger is provided.
 
     Returns:
         The decorated function (sync or async wrapper).
@@ -131,7 +134,7 @@ def watch(func=None, *, track_time=True, truncate_len=50, max_depth=None, export
         return functools.partial(watch, track_time=track_time, truncate_len=truncate_len,
                                  max_depth=max_depth, export_path=export_path, 
                                  track_vars=track_vars, capture_prints=capture_prints, 
-                                 track_memory=track_memory)
+                                 track_memory=track_memory, logger=logger, log_level=log_level)
 
     # ── Helpers ─────────────────────────────────────────────────
 
@@ -142,9 +145,13 @@ def watch(func=None, *, track_time=True, truncate_len=50, max_depth=None, export
             s = s[:truncate_len - 3] + "..."
         return s
 
-    def _log(msg):
-        """Print to console or append to file."""
-        if export_path:
+    def _actual_log(msg):
+        """Print to console, append to file, or send to Python logger."""
+        if logger is not None:
+            import logging
+            level = log_level if log_level is not None else logging.DEBUG
+            logger.log(level, msg)
+        elif export_path:
             try:
                 with open(export_path, "a", encoding="utf-8") as f:
                     f.write(msg + "\n")
@@ -152,6 +159,14 @@ def watch(func=None, *, track_time=True, truncate_len=50, max_depth=None, export
                 pass
         else:
             print(msg)
+
+    def _log(msg):
+        """Append to the current async buffer or log immediately."""
+        buf = _log_buffer.get()
+        if buf is not None:
+            buf.append((_actual_log, msg))
+        else:
+            _actual_log(msg)
 
     def _prefix(depth):
         """Build the tree prefix for a child node at the given depth."""
@@ -243,6 +258,11 @@ def watch(func=None, *, track_time=True, truncate_len=50, max_depth=None, export
                 finally:
                     _depth.reset(token)
 
+            # Create a localized buffer to prevent interleaved logs in concurrent async tasks
+            my_buffer = []
+            old_buffer = _log_buffer.get()
+            buffer_token = _log_buffer.set(my_buffer)
+
             start_time = _trace_call(args, kwargs, depth)
             token = _depth.set(depth + 1)
             
@@ -273,6 +293,13 @@ def watch(func=None, *, track_time=True, truncate_len=50, max_depth=None, export
                 _depth.reset(token)
                 _trace_return(depth, start_time, exc=e, mem_diff=mem_diff)
                 raise
+            finally:
+                _log_buffer.reset(buffer_token)
+                if old_buffer is not None:
+                    old_buffer.extend(my_buffer)
+                else:
+                    for log_func, msg in my_buffer:
+                        log_func(msg)
         return async_wrapper
     else:
         @functools.wraps(func)

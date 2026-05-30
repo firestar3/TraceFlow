@@ -32,6 +32,7 @@ fibonacci(3)
 | **Variable Tracking** | `track_vars=True` to log every local variable assignment inside a function |
 | **Capture Prints** | `capture_prints=True` to intercept `print()` calls and log them inline in the tree |
 | **Memory Profiling** | `track_memory=True` to append `[+1.2000 MB]` memory allocation to the return line |
+| **Python Logging** | `logger=my_logger` to emit trace lines through the standard `logging` module |
 | **Class Decorator** | `@watch_class` to automatically wrap all methods in a class |
 
 ---
@@ -352,7 +353,32 @@ process_data()
 
 ---
 
-### 10. Memory Profiling
+### 10. Python `logging` Integration
+
+For enterprise applications that require all output to be routed through standard logging channels instead of `sys.stdout`, you can pass a standard Python `logger` to the decorator. You can optionally specify the `log_level` (it defaults to `logging.DEBUG`).
+
+```python
+import logging
+from traceflow import watch
+
+logger = logging.getLogger("my_app")
+logger.setLevel(logging.DEBUG)
+
+@watch(logger=logger, log_level=logging.INFO)
+def authenticate_user(user_id):
+    return True
+
+authenticate_user(42)
+```
+
+```
+INFO:my_app:authenticate_user(42)
+INFO:my_app:└── return True [0.0102s]
+```
+
+---
+
+### 11. Memory Profiling
 
 Leverage Python's built-in `tracemalloc` to track the memory allocated during the execution of your function. TraceFlow will append the memory delta directly to the return line.
 
@@ -434,6 +460,8 @@ greet('Aarav', greeting='Hey', punctuation='!!')
 | `track_vars` | `bool` | `False` | Log local variable assignments inside the function (sync only) |
 | `capture_prints` | `bool` | `False` | Intercept `print()` calls and log them inline in the tree |
 | `track_memory` | `bool` | `False` | Track memory allocation delta and append to return line |
+| `logger` | `logging.Logger` | `None` | A standard Python logger to emit trace lines to |
+| `log_level` | `int` | `logging.DEBUG` | The logging level to use if `logger` is provided |
 
 ### Global Functions
 

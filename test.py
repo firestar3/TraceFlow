@@ -202,6 +202,21 @@ def memory_hog():
 
 memory_hog()
 
+# ── 14. Python Logging Integration ──────────────────────────────
+print("\n" + "=" * 55)
+print("  14. PYTHON LOGGING")
+print("=" * 55)
+
+import logging
+logging.basicConfig(level=logging.DEBUG, format="[LOG] %(message)s")
+test_logger = logging.getLogger("traceflow_test")
+
+@watch(logger=test_logger)
+def compute_metrics(data):
+    return sum(data)
+
+compute_metrics([10, 20, 30])
+
 print("\n" + "=" * 55)
 print("  ALL TESTS COMPLETE")
 print("=" * 55)
