@@ -10,6 +10,7 @@ import contextvars
 import inspect
 import time as _time
 import sys as _sys
+import tracemalloc as _tracemalloc
 
 # ── Global State ────────────────────────────────────────────────
 
@@ -90,7 +91,7 @@ def is_enabled():
 
 # ── Decorator ───────────────────────────────────────────────────
 
-def watch(func=None, *, track_time=True, truncate_len=50, max_depth=None, export_path=None, track_vars=False, capture_prints=False):
+def watch(func=None, *, track_time=True, truncate_len=50, max_depth=None, export_path=None, track_vars=False, capture_prints=False, track_memory=False):
     """
     Decorator that traces function calls, producing an indented call tree.
 
@@ -101,6 +102,7 @@ def watch(func=None, *, track_time=True, truncate_len=50, max_depth=None, export
         export_path (str): Write trace output to this file instead of stdout.
         track_vars (bool): Log local variable assignments inside the function (sync only).
         capture_prints (bool): Intercept print() calls and log them inline in the tree.
+        track_memory (bool): Track memory allocation delta and append to return line.
 
     Returns:
         The decorated function (sync or async wrapper).
@@ -127,7 +129,9 @@ def watch(func=None, *, track_time=True, truncate_len=50, max_depth=None, export
     """
     if func is None:
         return functools.partial(watch, track_time=track_time, truncate_len=truncate_len,
-                                 max_depth=max_depth, export_path=export_path, track_vars=track_vars, capture_prints=capture_prints)
+                                 max_depth=max_depth, export_path=export_path, 
+                                 track_vars=track_vars, capture_prints=capture_prints, 
+                                 track_memory=track_memory)
 
     # ── Helpers ─────────────────────────────────────────────────
 
@@ -170,14 +174,22 @@ def watch(func=None, *, track_time=True, truncate_len=50, max_depth=None, export
         _log(f"{_prefix(depth)}{call_str}")
         return _time.perf_counter() if track_time else None
 
-    def _trace_return(depth, start_time, result=None, exc=None):
+    def _trace_return(depth, start_time, result=None, exc=None, mem_diff=None):
         """Print the return/exception line as the last child of the call."""
         elapsed = f" [{_time.perf_counter() - start_time:.4f}s]" if (track_time and start_time) else ""
+        
+        mem_str = ""
+        if mem_diff is not None:
+            if mem_diff >= 0:
+                mem_str = f" [+{mem_diff / 1024 / 1024:.4f} MB]"
+            else:
+                mem_str = f" [{mem_diff / 1024 / 1024:.4f} MB]"
+
         ret_prefix = _continuation(depth) + "└── "
         if exc is not None:
-            _log(f"{ret_prefix}{type(exc).__name__}: {str(exc)}{elapsed}")
+            _log(f"{ret_prefix}{type(exc).__name__}: {str(exc)}{elapsed}{mem_str}")
         else:
-            _log(f"{ret_prefix}return {_get_repr(result)}{elapsed}")
+            _log(f"{ret_prefix}return {_get_repr(result)}{elapsed}{mem_str}")
 
     # ── Variable state tracking (sys.settrace) ──────────────────
 
@@ -239,19 +251,27 @@ def watch(func=None, *, track_time=True, truncate_len=50, max_depth=None, export
                 _ensure_stdout_hook()
                 print_token = _print_capturer_active.set((_log, _continuation(depth) + "│   "))
                 
+            mem_start = None
+            if track_memory:
+                if not _tracemalloc.is_tracing():
+                    _tracemalloc.start()
+                mem_start = _tracemalloc.get_traced_memory()[0]
+
             # track_vars not supported for async (sys.settrace is thread-level)
             try:
                 result = await func(*args, **kwargs)
+                mem_diff = _tracemalloc.get_traced_memory()[0] - mem_start if track_memory and mem_start is not None else None
                 if print_token:
                     _print_capturer_active.reset(print_token)
                 _depth.reset(token)
-                _trace_return(depth, start_time, result=result)
+                _trace_return(depth, start_time, result=result, mem_diff=mem_diff)
                 return result
             except Exception as e:
+                mem_diff = _tracemalloc.get_traced_memory()[0] - mem_start if track_memory and mem_start is not None else None
                 if print_token:
                     _print_capturer_active.reset(print_token)
                 _depth.reset(token)
-                _trace_return(depth, start_time, exc=e)
+                _trace_return(depth, start_time, exc=e, mem_diff=mem_diff)
                 raise
         return async_wrapper
     else:
@@ -276,6 +296,12 @@ def watch(func=None, *, track_time=True, truncate_len=50, max_depth=None, export
                 _ensure_stdout_hook()
                 print_token = _print_capturer_active.set((_log, _continuation(depth) + "│   "))
 
+            mem_start = None
+            if track_memory:
+                if not _tracemalloc.is_tracing():
+                    _tracemalloc.start()
+                mem_start = _tracemalloc.get_traced_memory()[0]
+
             if track_vars:
                 old_trace = _sys.gettrace()
                 _sys.settrace(_make_var_tracer(depth))
@@ -285,17 +311,32 @@ def watch(func=None, *, track_time=True, truncate_len=50, max_depth=None, export
             except Exception as e:
                 if track_vars:
                     _sys.settrace(old_trace)
+                mem_diff = _tracemalloc.get_traced_memory()[0] - mem_start if track_memory and mem_start is not None else None
                 if print_token:
                     _print_capturer_active.reset(print_token)
                 _depth.reset(token)
-                _trace_return(depth, start_time, exc=e)
+                _trace_return(depth, start_time, exc=e, mem_diff=mem_diff)
                 raise
             else:
                 if track_vars:
                     _sys.settrace(old_trace)
+                mem_diff = _tracemalloc.get_traced_memory()[0] - mem_start if track_memory and mem_start is not None else None
                 if print_token:
                     _print_capturer_active.reset(print_token)
                 _depth.reset(token)
-                _trace_return(depth, start_time, result=result)
+                _trace_return(depth, start_time, result=result, mem_diff=mem_diff)
                 return result
         return sync_wrapper
+
+def watch_class(*args, **kwargs):
+    """
+    Class decorator that automatically applies @watch to all methods 
+    (including __init__ and properties, excluding other dunder methods).
+    Accepts the same arguments as @watch.
+    """
+    def decorator(cls):
+        for name, method in inspect.getmembers(cls):
+            if inspect.isroutine(method) and (not name.startswith('__') or name == '__init__'):
+                setattr(cls, name, watch(*args, **kwargs)(method))
+        return cls
+    return decorator

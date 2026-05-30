@@ -31,6 +31,8 @@ fibonacci(3)
 | **Global Toggle** | `traceflow.disable()` / `traceflow.enable()` to control all tracing at runtime |
 | **Variable Tracking** | `track_vars=True` to log every local variable assignment inside a function |
 | **Capture Prints** | `capture_prints=True` to intercept `print()` calls and log them inline in the tree |
+| **Memory Profiling** | `track_memory=True` to append `[+1.2000 MB]` memory allocation to the return line |
+| **Class Decorator** | `@watch_class` to automatically wrap all methods in a class |
 
 ---
 
@@ -350,7 +352,59 @@ process_data()
 
 ---
 
-### 10. Keyword Arguments
+### 10. Memory Profiling
+
+Leverage Python's built-in `tracemalloc` to track the memory allocated during the execution of your function. TraceFlow will append the memory delta directly to the return line.
+
+```python
+@watch(track_memory=True)
+def load_large_dataset():
+    return [x for x in range(10000)]
+
+load_large_dataset()
+```
+
+```
+load_large_dataset()
+└── return [0, 1, 2, 3, ... [0.0026s] [+0.3786 MB]
+```
+
+---
+
+### 11. Class-Level Decorator (`@watch_class`)
+
+Instead of manually decorating every single method, you can use `@watch_class` to automatically apply the `@watch` logic to all methods (including `__init__`, while safely ignoring other magic dunder methods). It accepts all the same configuration arguments as `@watch`.
+
+```python
+from traceflow import watch_class
+
+@watch_class(track_time=False)
+class DataProcessor:
+    def __init__(self, data):
+        self.data = data
+
+    def process(self):
+        return self._transform(self.data)
+
+    def _transform(self, data):
+        return [x * 2 for x in data]
+
+processor = DataProcessor([1, 2, 3])
+processor.process()
+```
+
+```
+__init__(<__main__.DataProcessor object at ...>, [1, 2, 3])
+└── return None
+process(<__main__.DataProcessor object at ...>)
+├── _transform(<__main__.DataProcessor object at ...>, [1, 2, 3])
+│   └── return [2, 4, 6]
+└── return [2, 4, 6]
+```
+
+---
+
+### 12. Keyword Arguments
 
 TraceFlow displays both positional and keyword arguments.
 
@@ -379,6 +433,7 @@ greet('Aarav', greeting='Hey', punctuation='!!')
 | `export_path` | `str` | `None` | Write trace to a file instead of stdout |
 | `track_vars` | `bool` | `False` | Log local variable assignments inside the function (sync only) |
 | `capture_prints` | `bool` | `False` | Intercept `print()` calls and log them inline in the tree |
+| `track_memory` | `bool` | `False` | Track memory allocation delta and append to return line |
 
 ### Global Functions
 

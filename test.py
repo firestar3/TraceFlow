@@ -170,6 +170,38 @@ def process_data():
 
 process_data()
 
+# ── 12. Class-level Decorator ───────────────────────────────────
+print("\n" + "=" * 55)
+print("  12. CLASS-LEVEL DECORATOR")
+print("=" * 55)
+
+from traceflow import watch_class
+
+@watch_class(track_time=False)
+class DataProcessor:
+    def __init__(self, data):
+        self.data = data
+
+    def process(self):
+        return self._transform(self.data)
+
+    def _transform(self, data):
+        return [x * 2 for x in data]
+
+processor = DataProcessor([1, 2, 3])
+processor.process()
+
+# ── 13. Memory Profiling ────────────────────────────────────────
+print("\n" + "=" * 55)
+print("  13. MEMORY PROFILING")
+print("=" * 55)
+
+@watch(track_memory=True)
+def memory_hog():
+    return [x for x in range(10000)]
+
+memory_hog()
+
 print("\n" + "=" * 55)
 print("  ALL TESTS COMPLETE")
 print("=" * 55)
