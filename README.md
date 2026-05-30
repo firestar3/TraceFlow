@@ -479,4 +479,4 @@ greet('Aarav', greeting='Hey', punctuation='!!')
 
 ## License
 
-All Rights Reserved.
+This project is licensed under the [MIT License](LICENSE).
