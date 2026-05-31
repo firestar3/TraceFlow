@@ -223,25 +223,33 @@ print("  15. SELECTIVE VARIABLE TRACKING")
 print("=" * 55)
 
 @watch(track_vars=['total', 'doubled'])
-def selective_compute(x, y):
-    total = x + y
-    ignored_var = 999
+def compute_selective(a, b):
+    total = a + b
     doubled = total * 2
-    another_ignored = "hello"
+    message = f'Result: {doubled}'
     return doubled
 
-selective_compute(5, 3)
+compute_selective(5, 3)
 
-# ── 16. Context Manager ─────────────────────────────────────────
+# ── 16. Context Manager (watch_block) ───────────────────────────
 print("\n" + "=" * 55)
-print("  16. CONTEXT MANAGER")
+print("  16. CONTEXT MANAGER (watch_block)")
 print("=" * 55)
 
-import time
-with watch("data_processing", "dataset_A", mode="fast"):
-    time.sleep(0.01)
-    with watch("inner_loop"):
-        time.sleep(0.005)
+from traceflow import watch_block
+
+with watch_block("Main Pipeline"):
+    with watch_block("Step 1: Load Data"):
+        data = [1, 2, 3, 4, 5]
+    with watch_block("Step 2: Process"):
+        result = sum(data)
+    print(f"  Pipeline result: {result}")
+
+print("\n  --- watch_block with capture_prints ---")
+
+with watch_block("Print Test", capture_prints=True):
+    print("Hello from inside a block!")
+    print("Another line")
 
 print("\n" + "=" * 55)
 print("  ALL TESTS COMPLETE")

@@ -29,12 +29,13 @@ fibonacci(3)
 | **Depth Limiting** | Cap tracing depth with `max_depth` to reduce noise |
 | **File Export** | Redirect trace output to a file instead of the console |
 | **Global Toggle** | `traceflow.disable()` / `traceflow.enable()` to control all tracing at runtime |
-| **Variable Tracking** | `track_vars=True` (or a list of names) to log local variable assignments inside a function |
+| **Variable Tracking** | `track_vars=True` to log every local variable assignment inside a function |
+| **Selective Variables** | `track_vars=['x', 'y']` to track only specific variables by name |
 | **Capture Prints** | `capture_prints=True` to intercept `print()` calls and log them inline in the tree |
 | **Memory Profiling** | `track_memory=True` to append `[+1.2000 MB]` memory allocation to the return line |
 | **Python Logging** | `logger=my_logger` to emit trace lines through the standard `logging` module |
 | **Class Decorator** | `@watch_class` to automatically wrap all methods in a class |
-| **Context Manager** | `with watch("name", inputs...):` to trace any arbitrary block of code |
+| **Context Manager** | `with traceflow.watch_block("name"):` to trace arbitrary code blocks |
 
 ---
 
@@ -196,7 +197,7 @@ Calls beyond `max_depth` still execute normally — they just aren't traced.
 
 ### 5. Async Function Support
 
-TraceFlow natively supports `async` functions. Concurrent tasks from `asyncio.gather` are traced cleanly, with each task's output grouped together (no interleaving).
+TraceFlow natively supports `async` functions. Concurrent tasks from `asyncio.gather` are traced cleanly.
 
 ```python
 import asyncio
@@ -302,7 +303,56 @@ compute(5, 3)
 └── return 16 [0.0002s]
 ```
 
+Variable tracking inside a loop:
+
+```python
+@watch(track_vars=True)
+def sum_list(items):
+    total = 0
+    for val in items:
+        total += val
+    return total
+
+sum_list([10, 20, 30])
+```
+
+```
+sum_list([10, 20, 30])
+│   · total = 0
+│   · val = 10
+│   · total = 10
+│   · val = 20
+│   · total = 30
+│   · val = 30
+│   · total = 60
+└── return 60 [0.0001s]
+```
+
 > **Note:** Variable tracking uses `sys.settrace` and is only available for synchronous functions. It adds overhead and is best used for targeted debugging, not production code.
+
+#### Selective Variable Tracking
+
+If you only care about specific variables, pass a list of names instead of `True`. All other locals will be ignored.
+
+```python
+@watch(track_vars=['total', 'doubled'])
+def compute(x, y):
+    total = x + y
+    doubled = total * 2
+    message = f'Result: {doubled}'
+    return doubled
+
+compute(5, 3)
+```
+
+```
+compute(5, 3)
+│   · total = 8
+│   · doubled = 16
+└── return 16 [0.0003s]
+```
+
+Notice that `message` is not logged because it was not in the filter list.
 
 ---
 
@@ -373,7 +423,7 @@ load_large_dataset()
 
 ---
 
-### 12. Class-Level Decorator (`@watch_class`)
+### 11. Class-Level Decorator (`@watch_class`)
 
 Instead of manually decorating every single method, you can use `@watch_class` to automatically apply the `@watch` logic to all methods (including `__init__`, while safely ignoring other magic dunder methods). It accepts all the same configuration arguments as `@watch`.
 
@@ -406,52 +456,7 @@ process(<__main__.DataProcessor object at ...>)
 
 ---
 
-### 13. Selective Variable Tracking
-
-Instead of tracking every local variable, you can pass a list of variable names to `track_vars` to only log the ones you care about. All other assignments are silently ignored.
-
-```python
-@watch(track_vars=['total', 'doubled'])
-def compute(x, y):
-    total = x + y
-    ignored_var = 999       # not logged
-    doubled = total * 2
-    another_ignored = "hi"  # not logged
-    return doubled
-
-compute(5, 3)
-```
-
-```
-compute(5, 3)
-│   · total = 8
-│   · doubled = 16
-└── return 16 [0.0001s]
-```
-
----
-
-### 14. Context Manager
-
-You do not need to decorate a function to trace a block of code. Use `watch` as a context manager with a label and optional inputs to trace any arbitrary code block inline.
-
-```python
-with watch("data_processing", "dataset_A", mode="fast"):
-    # ... your code here ...
-    with watch("inner_loop"):
-        # ... nested block ...
-```
-
-```
-data_processing('dataset_A', mode='fast')
-├── inner_loop
-│   └── end context [0.0057s]
-└── end context [0.0166s]
-```
-
----
-
-### 15. Keyword Arguments
+### 12. Keyword Arguments
 
 TraceFlow displays both positional and keyword arguments.
 
@@ -470,6 +475,44 @@ greet('Aarav', greeting='Hey', punctuation='!!')
 
 ---
 
+### 14. Context Manager (`watch_block`)
+
+Sometimes you want to trace an arbitrary block of code rather than a single function. The `watch_block` context manager creates a named node in the call tree and supports nesting, timing, `capture_prints`, and `track_memory`.
+
+```python
+from traceflow import watch_block
+
+with watch_block("Main Pipeline"):
+    with watch_block("Step 1: Load Data"):
+        data = load_data()
+    with watch_block("Step 2: Process"):
+        result = process(data)
+```
+
+```
+Main Pipeline
+├── Step 1: Load Data
+│   └── done [0.0001s]
+├── Step 2: Process
+│   └── done [0.0002s]
+└── done [0.0005s]
+```
+
+You can also capture prints inside a block:
+
+```python
+with watch_block("Print Test", capture_prints=True):
+    print("Hello from inside a block!")
+```
+
+```
+Print Test
+│   · print: Hello from inside a block!
+└── done [0.0001s]
+```
+
+---
+
 ## Configuration Reference
 
 | Parameter | Type | Default | Description |
@@ -478,7 +521,7 @@ greet('Aarav', greeting='Hey', punctuation='!!')
 | `truncate_len` | `int` | `50` | Max characters for argument/return repr. `0` or `None` to disable |
 | `max_depth` | `int` | `None` | Stop tracing beyond this call depth. `None` for unlimited |
 | `export_path` | `str` | `None` | Write trace to a file instead of stdout |
-| `track_vars` | `bool` or `list` | `False` | `True` to log all local vars, or a list of names (e.g., `['x', 'y']`) to track selectively |
+| `track_vars` | `bool` or `list` | `False` | `True` for all variables, or a list of names like `['x', 'y']` (sync only) |
 | `capture_prints` | `bool` | `False` | Intercept `print()` calls and log them inline in the tree |
 | `track_memory` | `bool` | `False` | Track memory allocation delta and append to return line |
 | `logger` | `logging.Logger` | `None` | A standard Python logger to emit trace lines to |

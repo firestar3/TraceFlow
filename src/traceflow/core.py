@@ -92,26 +92,24 @@ def is_enabled():
 
 # ── Decorator ───────────────────────────────────────────────────
 
-def watch(func_or_name=None, *args, track_time=True, truncate_len=50, max_depth=None, export_path=None, track_vars=False, capture_prints=False, track_memory=False, logger=None, log_level=None, **kwargs):
+def watch(func=None, *, track_time=True, truncate_len=50, max_depth=None, export_path=None, track_vars=False, capture_prints=False, track_memory=False, logger=None, log_level=None):
     """
-    Decorator or Context Manager that traces function/block execution, producing an indented call tree.
+    Decorator that traces function calls, producing an indented call tree.
 
     Args:
-        func_or_name: Function to decorate, or a string name if used as a context manager.
-        *args: Positional arguments to log if used as a context manager.
         track_time (bool): Append execution time to each return line. Default True.
         truncate_len (int): Max characters for argument/return repr. 0 or None to disable.
         max_depth (int): Stop tracing beyond this call depth. None for unlimited.
         export_path (str): Write trace output to this file instead of stdout.
-        track_vars (bool or list): Log local variable assignments. True for all, or a list of names.
+        track_vars (bool or list): Log local variable assignments. True for all variables,
+            or a list of variable name strings to track selectively (sync only).
         capture_prints (bool): Intercept print() calls and log them inline in the tree.
         track_memory (bool): Track memory allocation delta and append to return line.
         logger (logging.Logger): A standard Python logger to emit trace lines to.
         log_level (int): The logging level to use (e.g., logging.DEBUG). Defaults to DEBUG if logger is provided.
-        **kwargs: Keyword arguments to log if used as a context manager.
 
     Returns:
-        The decorated function (sync or async wrapper), or a context manager object.
+        The decorated function (sync or async wrapper).
 
     Example::
 
@@ -133,7 +131,7 @@ def watch(func_or_name=None, *args, track_time=True, truncate_len=50, max_depth=
         # │   └── return 1 [0.0000s]
         # └── return 2 [0.0008s]
     """
-    if func_or_name is None:
+    if func is None:
         return functools.partial(watch, track_time=track_time, truncate_len=truncate_len,
                                  max_depth=max_depth, export_path=export_path, 
                                  track_vars=track_vars, capture_prints=capture_prints, 
@@ -183,84 +181,10 @@ def watch(func_or_name=None, *args, track_time=True, truncate_len=50, max_depth=
 
     # ── Trace entry / exit ──────────────────────────────────────
 
-    def _trace_return(depth, start_time, result=None, exc=None, mem_diff=None, is_context=False):
-        """Print the return/exception line as the last child of the call."""
-        elapsed = f" [{_time.perf_counter() - start_time:.4f}s]" if (track_time and start_time) else ""
-        
-        mem_str = ""
-        if mem_diff is not None:
-            if mem_diff >= 0:
-                mem_str = f" [+{mem_diff / 1024 / 1024:.4f} MB]"
-            else:
-                mem_str = f" [{mem_diff / 1024 / 1024:.4f} MB]"
-
-        ret_prefix = _continuation(depth) + "└── "
-        if exc is not None:
-            _log(f"{ret_prefix}{type(exc).__name__}: {str(exc)}{elapsed}{mem_str}")
-        elif is_context:
-            _log(f"{ret_prefix}end context{elapsed}{mem_str}")
-        else:
-            _log(f"{ret_prefix}return {_get_repr(result)}{elapsed}{mem_str}")
-
-    # ── Context Manager ─────────────────────────────────────────
-
-    if isinstance(func_or_name, str):
-        class WatchContext:
-            def __enter__(self):
-                if not _enabled:
-                    return self
-                
-                self.depth = _depth.get()
-                if max_depth is not None and self.depth >= max_depth:
-                    self.token = _depth.set(self.depth + 1)
-                    return self
-                
-                pos_args = [_get_repr(a) for a in args]
-                kw_args = [f"{k}={_get_repr(v)}" for k, v in kwargs.items()]
-                all_args = ", ".join(pos_args + kw_args)
-                call_str = f"{func_or_name}({all_args})" if all_args else func_or_name
-                _log(f"{_prefix(self.depth)}{call_str}")
-                
-                self.start_time = _time.perf_counter() if track_time else None
-                self.token = _depth.set(self.depth + 1)
-                
-                self.print_token = None
-                if capture_prints:
-                    _ensure_stdout_hook()
-                    self.print_token = _print_capturer_active.set((_log, _continuation(self.depth) + "│   "))
-                    
-                self.mem_start = None
-                if track_memory:
-                    if not _tracemalloc.is_tracing():
-                        _tracemalloc.start()
-                    self.mem_start = _tracemalloc.get_traced_memory()[0]
-
-                return self
-
-            def __exit__(self, exc_type, exc_val, exc_tb):
-                if not _enabled:
-                    return False
-                
-                if max_depth is not None and self.depth >= max_depth:
-                    _depth.reset(self.token)
-                    return False
-
-                mem_diff = _tracemalloc.get_traced_memory()[0] - self.mem_start if track_memory and self.mem_start is not None else None
-                if self.print_token:
-                    _print_capturer_active.reset(self.print_token)
-                _depth.reset(self.token)
-                
-                _trace_return(self.depth, self.start_time, exc=exc_val, mem_diff=mem_diff, is_context=True)
-                return False
-
-        return WatchContext()
-
-    func = func_or_name
-
-    def _trace_call(call_args, call_kwargs, depth):
+    def _trace_call(args, kwargs, depth):
         """Print the function call line and return start_time."""
-        pos_args = [_get_repr(a) for a in call_args]
-        kw_args = [f"{k}={_get_repr(v)}" for k, v in call_kwargs.items()]
+        pos_args = [_get_repr(a) for a in args]
+        kw_args = [f"{k}={_get_repr(v)}" for k, v in kwargs.items()]
         all_args = ", ".join(pos_args + kw_args)
         call_str = f"{func.__name__}({all_args})"
         _log(f"{_prefix(depth)}{call_str}")
@@ -291,13 +215,18 @@ def watch(func_or_name=None, *args, track_time=True, truncate_len=50, max_depth=
         prev_locals = [None]  # None = first snapshot not yet captured
         target_code = func.__code__
 
+        # If track_vars is a list, only track those specific variable names
+        var_filter = None
+        if isinstance(track_vars, list):
+            var_filter = set(track_vars)
+
         def local_tracer(frame, event, arg):
             if event == 'line':
                 current = {}
                 for k, v in frame.f_locals.items():
                     if k.startswith('_'):
                         continue
-                    if isinstance(track_vars, (list, set, tuple)) and k not in track_vars:
+                    if var_filter is not None and k not in var_filter:
                         continue
                     try:
                         current[k] = _get_repr(v)
@@ -446,3 +375,136 @@ def watch_class(*args, **kwargs):
                 setattr(cls, name, watch(*args, **kwargs)(method))
         return cls
     return decorator
+
+
+# ── Context Manager ─────────────────────────────────────────────
+
+class watch_block:
+    """
+    Context manager that traces an arbitrary block of code as a named node
+    in the call tree.
+
+    Usage::
+
+        with traceflow.watch_block("Loading Data", track_time=True):
+            data = load()
+            process(data)
+
+    Args:
+        name (str): The label for this block in the trace tree.
+        track_time (bool): Append execution time. Default True.
+        truncate_len (int): Max repr length. Default 50.
+        export_path (str): Write trace to file instead of stdout.
+        capture_prints (bool): Capture print() calls inside the block.
+        track_memory (bool): Track memory allocation delta.
+        logger (logging.Logger): Emit trace lines via a Python logger.
+        log_level (int): Logging level (default DEBUG).
+    """
+
+    def __init__(self, name, *, track_time=True, truncate_len=50,
+                 export_path=None, capture_prints=False, track_memory=False,
+                 logger=None, log_level=None):
+        self._name = name
+        self._track_time = track_time
+        self._truncate_len = truncate_len
+        self._export_path = export_path
+        self._capture_prints = capture_prints
+        self._track_memory = track_memory
+        self._logger = logger
+        self._log_level = log_level
+
+    # ── internal helpers ────────────────────────────────────────
+
+    def _get_repr(self, val):
+        s = repr(val)
+        if self._truncate_len and len(s) > self._truncate_len:
+            s = s[:self._truncate_len - 3] + "..."
+        return s
+
+    def _actual_log(self, msg):
+        if self._logger is not None:
+            import logging
+            level = self._log_level if self._log_level is not None else logging.DEBUG
+            self._logger.log(level, msg)
+        elif self._export_path:
+            try:
+                with open(self._export_path, "a", encoding="utf-8") as f:
+                    f.write(msg + "\n")
+            except Exception:
+                pass
+        else:
+            print(msg)
+
+    def _log(self, msg):
+        buf = _log_buffer.get()
+        if buf is not None:
+            buf.append((self._actual_log, msg))
+        else:
+            self._actual_log(msg)
+
+    @staticmethod
+    def _prefix(depth):
+        if depth == 0:
+            return ""
+        return "│   " * (depth - 1) + "├── "
+
+    @staticmethod
+    def _continuation(depth):
+        return "│   " * depth
+
+    # ── context protocol ────────────────────────────────────────
+
+    def __enter__(self):
+        if not _enabled:
+            self._active = False
+            return self
+
+        self._active = True
+        self._depth = _depth.get()
+        self._log(f"{self._prefix(self._depth)}{self._name}")
+        self._depth_token = _depth.set(self._depth + 1)
+
+        self._print_token = None
+        if self._capture_prints:
+            _ensure_stdout_hook()
+            self._print_token = _print_capturer_active.set(
+                (self._log, self._continuation(self._depth) + "│   ")
+            )
+
+        self._mem_start = None
+        if self._track_memory:
+            if not _tracemalloc.is_tracing():
+                _tracemalloc.start()
+            self._mem_start = _tracemalloc.get_traced_memory()[0]
+
+        self._start_time = _time.perf_counter() if self._track_time else None
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if not self._active:
+            return False
+
+        elapsed = ""
+        if self._track_time and self._start_time is not None:
+            elapsed = f" [{_time.perf_counter() - self._start_time:.4f}s]"
+
+        mem_str = ""
+        if self._track_memory and self._mem_start is not None:
+            mem_diff = _tracemalloc.get_traced_memory()[0] - self._mem_start
+            if mem_diff >= 0:
+                mem_str = f" [+{mem_diff / 1024 / 1024:.4f} MB]"
+            else:
+                mem_str = f" [{mem_diff / 1024 / 1024:.4f} MB]"
+
+        if self._print_token:
+            _print_capturer_active.reset(self._print_token)
+
+        _depth.reset(self._depth_token)
+
+        ret_prefix = self._continuation(self._depth) + "└── "
+        if exc_val is not None:
+            self._log(f"{ret_prefix}{type(exc_val).__name__}: {str(exc_val)}{elapsed}{mem_str}")
+        else:
+            self._log(f"{ret_prefix}done{elapsed}{mem_str}")
+
+        return False  # do not suppress exceptions
