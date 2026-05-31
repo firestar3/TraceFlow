@@ -423,7 +423,7 @@ load_large_dataset()
 
 ---
 
-### 11. Class-Level Decorator (`@watch_class`)
+### 12. Class-Level Decorator (`@watch_class`)
 
 Instead of manually decorating every single method, you can use `@watch_class` to automatically apply the `@watch` logic to all methods (including `__init__`, while safely ignoring other magic dunder methods). It accepts all the same configuration arguments as `@watch`.
 
@@ -456,7 +456,7 @@ process(<__main__.DataProcessor object at ...>)
 
 ---
 
-### 12. Keyword Arguments
+### 13. Keyword Arguments
 
 TraceFlow displays both positional and keyword arguments.
 
