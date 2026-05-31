@@ -1,6 +1,6 @@
 
 from traceflow.core import watch, watch_class, enable, disable, is_enabled
 
-__version__ = "1.5.2"
+__version__ = "1.6.0"
 __author__ = "Aarav Agarwal"
 __all__ = ["watch", "watch_class", "enable", "disable", "is_enabled"]

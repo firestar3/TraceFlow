@@ -217,6 +217,32 @@ def compute_metrics(data):
 
 compute_metrics([10, 20, 30])
 
+# ── 15. Selective Variable Tracking ─────────────────────────────
+print("\n" + "=" * 55)
+print("  15. SELECTIVE VARIABLE TRACKING")
+print("=" * 55)
+
+@watch(track_vars=['total', 'doubled'])
+def selective_compute(x, y):
+    total = x + y
+    ignored_var = 999
+    doubled = total * 2
+    another_ignored = "hello"
+    return doubled
+
+selective_compute(5, 3)
+
+# ── 16. Context Manager ─────────────────────────────────────────
+print("\n" + "=" * 55)
+print("  16. CONTEXT MANAGER")
+print("=" * 55)
+
+import time
+with watch("data_processing", "dataset_A", mode="fast"):
+    time.sleep(0.01)
+    with watch("inner_loop"):
+        time.sleep(0.005)
+
 print("\n" + "=" * 55)
 print("  ALL TESTS COMPLETE")
 print("=" * 55)
