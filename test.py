@@ -251,6 +251,40 @@ with watch_block("Print Test", capture_prints=True):
     print("Hello from inside a block!")
     print("Another line")
 
+# ── 17. Mask Arguments ──────────────────────────────────────────
+print("\n" + "=" * 55)
+print("  17. MASK ARGUMENTS")
+print("=" * 55)
+
+@watch(mask_args=['password', 'secret_key'])
+def login(username, password, secret_key=None):
+    return True
+
+login("aarav", "my_super_secret_pass", secret_key="123456")
+
+# ── 18. Track Return ────────────────────────────────────────────
+print("\n" + "=" * 55)
+print("  18. TRACK RETURN")
+print("=" * 55)
+
+@watch(track_return=False)
+def generate_api_key():
+    return "sk-abcdef1234567890"
+
+generate_api_key()
+
+# ── 19. Assert Return ───────────────────────────────────────────
+print("\n" + "=" * 55)
+print("  19. ASSERT RETURN")
+print("=" * 55)
+
+@watch(assert_return=lambda x: x > 0)
+def process_positive_only(val):
+    return val
+
+process_positive_only(10)
+process_positive_only(-5)
+
 print("\n" + "=" * 55)
 print("  ALL TESTS COMPLETE")
 print("=" * 55)

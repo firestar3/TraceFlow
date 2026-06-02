@@ -92,7 +92,7 @@ def is_enabled():
 
 # ── Decorator ───────────────────────────────────────────────────
 
-def watch(func=None, *, track_time=True, truncate_len=50, max_depth=None, export_path=None, track_vars=False, capture_prints=False, track_memory=False, logger=None, log_level=None):
+def watch(func=None, *, track_time=True, truncate_len=50, max_depth=None, export_path=None, track_vars=False, capture_prints=False, track_memory=False, logger=None, log_level=None, mask_args=None, track_return=True, assert_return=None):
     """
     Decorator that traces function calls, producing an indented call tree.
 
@@ -107,6 +107,10 @@ def watch(func=None, *, track_time=True, truncate_len=50, max_depth=None, export
         track_memory (bool): Track memory allocation delta and append to return line.
         logger (logging.Logger): A standard Python logger to emit trace lines to.
         log_level (int): The logging level to use (e.g., logging.DEBUG). Defaults to DEBUG if logger is provided.
+        mask_args (list): List of argument names (strings) to mask in the trace output.
+        track_return (bool): Whether to log the actual return value. Default True.
+        assert_return (callable): A function that takes the return value and returns a bool.
+            If False, logs an assertion warning in the trace.
 
     Returns:
         The decorated function (sync or async wrapper).
@@ -135,7 +139,8 @@ def watch(func=None, *, track_time=True, truncate_len=50, max_depth=None, export
         return functools.partial(watch, track_time=track_time, truncate_len=truncate_len,
                                  max_depth=max_depth, export_path=export_path, 
                                  track_vars=track_vars, capture_prints=capture_prints, 
-                                 track_memory=track_memory, logger=logger, log_level=log_level)
+                                 track_memory=track_memory, logger=logger, log_level=log_level,
+                                 mask_args=mask_args, track_return=track_return, assert_return=assert_return)
 
     # ── Helpers ─────────────────────────────────────────────────
 
@@ -183,9 +188,27 @@ def watch(func=None, *, track_time=True, truncate_len=50, max_depth=None, export
 
     def _trace_call(args, kwargs, depth):
         """Print the function call line and return start_time."""
-        pos_args = [_get_repr(a) for a in args]
-        kw_args = [f"{k}={_get_repr(v)}" for k, v in kwargs.items()]
-        all_args = ", ".join(pos_args + kw_args)
+        mask_set = set(mask_args) if mask_args else set()
+        
+        try:
+            sig = inspect.signature(func)
+            bound_args = sig.bind(*args, **kwargs)
+            bound_args.apply_defaults()
+            arg_dict = bound_args.arguments
+            
+            formatted_args = []
+            for k, v in arg_dict.items():
+                if k in mask_set:
+                    formatted_args.append(f"{k}='***'")
+                else:
+                    formatted_args.append(f"{k}={_get_repr(v)}")
+            all_args = ", ".join(formatted_args)
+        except Exception:
+            # Fallback if signature binding fails
+            pos_args = [_get_repr(a) for a in args]
+            kw_args = [f"{k}='***'" if k in mask_set else f"{k}={_get_repr(v)}" for k, v in kwargs.items()]
+            all_args = ", ".join(pos_args + kw_args)
+            
         call_str = f"{func.__name__}({all_args})"
         _log(f"{_prefix(depth)}{call_str}")
         return _time.perf_counter() if track_time else None
@@ -205,7 +228,17 @@ def watch(func=None, *, track_time=True, truncate_len=50, max_depth=None, export
         if exc is not None:
             _log(f"{ret_prefix}{type(exc).__name__}: {str(exc)}{elapsed}{mem_str}")
         else:
-            _log(f"{ret_prefix}return {_get_repr(result)}{elapsed}{mem_str}")
+            if assert_return is not None:
+                try:
+                    if not assert_return(result):
+                        _log(f"{_continuation(depth)}│   · [WARNING] assert_return failed")
+                except Exception as e:
+                    _log(f"{_continuation(depth)}│   · [WARNING] assert_return raised {type(e).__name__}: {str(e)}")
+            
+            if not track_return:
+                _log(f"{ret_prefix}return <hidden>{elapsed}{mem_str}")
+            else:
+                _log(f"{ret_prefix}return {_get_repr(result)}{elapsed}{mem_str}")
 
     # ── Variable state tracking (sys.settrace) ──────────────────
 

@@ -34,6 +34,8 @@ fibonacci(3)
 | **Capture Prints** | `capture_prints=True` to intercept `print()` calls and log them inline in the tree |
 | **Memory Profiling** | `track_memory=True` to append `[+1.2000 MB]` memory allocation to the return line |
 | **Python Logging** | `logger=my_logger` to emit trace lines through the standard `logging` module |
+| **Data Masking** | `mask_args=['password']` and `track_return=False` to hide sensitive data in traces |
+| **Return Assertions** | `assert_return=lambda x: x > 0` to log warnings for invalid returns |
 | **Class Decorator** | `@watch_class` to automatically wrap all methods in a class |
 | **Context Manager** | `with traceflow.watch_block("name"):` to trace arbitrary code blocks |
 
@@ -475,7 +477,49 @@ greet('Aarav', greeting='Hey', punctuation='!!')
 
 ---
 
-### 14. Context Manager (`watch_block`)
+### 13. Data Masking (Security)
+
+When tracing functions that handle sensitive data like passwords or API keys, you can prevent them from leaking into the trace logs.
+
+* `mask_args`: Pass a list of argument names. Their values will be replaced with `'***'`.
+* `track_return`: Set to `False` to hide the return value.
+
+```python
+@watch(mask_args=['password', 'secret_key'], track_return=False)
+def login(username, password, secret_key=None):
+    return "session_token_123"
+
+login("aarav", "my_super_secret_pass", secret_key="456789")
+```
+
+```
+login(username='aarav', password='***', secret_key='***')
+└── return <hidden> [0.0001s]
+```
+
+---
+
+### 14. Return Assertions (`assert_return`)
+
+You can pass a callable to `assert_return` to automatically validate the output of your function. If the callable returns `False` or raises an exception, TraceFlow will prominently inject a `[WARNING]` into the trace tree.
+
+```python
+@watch(assert_return=lambda x: x > 0)
+def process_positive_only(val):
+    return val
+
+process_positive_only(-5)
+```
+
+```
+process_positive_only(val=-5)
+│   · [WARNING] assert_return failed
+└── return -5 [0.0000s]
+```
+
+---
+
+### 15. Context Manager (`watch_block`)
 
 Sometimes you want to trace an arbitrary block of code rather than a single function. The `watch_block` context manager creates a named node in the call tree and supports nesting, timing, `capture_prints`, and `track_memory`.
 
@@ -526,6 +570,9 @@ Print Test
 | `track_memory` | `bool` | `False` | Track memory allocation delta and append to return line |
 | `logger` | `logging.Logger` | `None` | A standard Python logger to emit trace lines to |
 | `log_level` | `int` | `logging.DEBUG` | The logging level to use if `logger` is provided |
+| `mask_args` | `list` | `None` | List of argument names to replace with `'***'` in trace |
+| `track_return` | `bool` | `True` | Set to `False` to log `<hidden>` instead of the actual return value |
+| `assert_return` | `callable` | `None` | Function to validate the return value. Logs a `[WARNING]` if it fails |
 
 ### Global Functions
 
