@@ -477,7 +477,7 @@ greet('Aarav', greeting='Hey', punctuation='!!')
 
 ---
 
-### 13. Data Masking (Security)
+### 14. Data Masking (Security)
 
 When tracing functions that handle sensitive data like passwords or API keys, you can prevent them from leaking into the trace logs.
 
@@ -499,7 +499,7 @@ login(username='aarav', password='***', secret_key='***')
 
 ---
 
-### 14. Return Assertions (`assert_return`)
+### 15. Return Assertions (`assert_return`)
 
 You can pass a callable to `assert_return` to automatically validate the output of your function. If the callable returns `False` or raises an exception, TraceFlow will prominently inject a `[WARNING]` into the trace tree.
 
@@ -519,7 +519,7 @@ process_positive_only(val=-5)
 
 ---
 
-### 15. Context Manager (`watch_block`)
+### 16. Context Manager (`watch_block`)
 
 Sometimes you want to trace an arbitrary block of code rather than a single function. The `watch_block` context manager creates a named node in the call tree and supports nesting, timing, `capture_prints`, and `track_memory`.
 
