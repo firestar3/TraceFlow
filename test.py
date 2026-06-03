@@ -319,6 +319,29 @@ with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
     futures = [executor.submit(threaded_worker, i) for i in range(3)]
     concurrent.futures.wait(futures)
 
+# ── 22. Async Variable Tracking ─────────────────────────────────
+print("\n" + "=" * 55)
+print("  22. ASYNC VARIABLE TRACKING")
+print("=" * 55)
+
+@watch(track_vars=True)
+async def async_compute(a, b):
+    import asyncio
+    total = a + b
+    await asyncio.sleep(0.01)
+    doubled = total * 2
+    return doubled
+
+async def run_async_compute():
+    import asyncio
+    await asyncio.gather(
+        async_compute(2, 3),
+        async_compute(10, 20)
+    )
+
+import asyncio
+asyncio.run(run_async_compute())
+
 print("\n" + "=" * 55)
 print("  ALL TESTS COMPLETE")
 print("=" * 55)

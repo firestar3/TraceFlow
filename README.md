@@ -332,7 +332,7 @@ sum_list([10, 20, 30])
 └── return 60 [0.0001s]
 ```
 
-> **Note:** Variable tracking uses `sys.settrace` and is only available for synchronous functions. It adds overhead and is best used for targeted debugging, not production code.
+> **Note:** Variable tracking adds overhead and is best used for targeted debugging, not production code.
 
 #### Selective Variable Tracking
 
@@ -607,7 +607,7 @@ with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
 | `truncate_len` | `int` | `50` | Max characters for argument/return repr. `0` or `None` to disable |
 | `max_depth` | `int` | `None` | Stop tracing beyond this call depth. `None` for unlimited |
 | `export_path` | `str` | `None` | Write trace to a file instead of stdout |
-| `track_vars` | `bool` or `list` | `False` | `True` for all variables, or a list of names like `['x', 'y']` (sync only) |
+| `track_vars` | `bool` or `list` | `False` | `True` for all variables, or a list of names like `['x', 'y']` |
 | `capture_prints` | `bool` | `False` | Intercept `print()` calls and log them inline in the tree |
 | `track_memory` | `bool` | `False` | Track memory allocation delta and append to return line |
 | `logger` | `logging.Logger` | `None` | A standard Python logger to emit trace lines to |

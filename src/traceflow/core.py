@@ -11,6 +11,7 @@ import inspect
 import time as _time
 import sys as _sys
 import tracemalloc as _tracemalloc
+import threading as _threading
 
 # ── Global State ────────────────────────────────────────────────
 
@@ -19,6 +20,29 @@ _enabled = True
 
 _print_capturer_active = contextvars.ContextVar('print_capturer_active', default=None)
 _log_buffer = contextvars.ContextVar('log_buffer', default=None)
+
+_async_trace_state = _threading.local()
+
+def _enable_async_trace():
+    if not hasattr(_async_trace_state, 'refcount'):
+        _async_trace_state.refcount = 0
+        _async_trace_state.old_trace = _sys.gettrace()
+    
+    if _async_trace_state.refcount == 0:
+        _async_trace_state.old_trace = _sys.gettrace()
+        if _async_trace_state.old_trace is None:
+            _sys.settrace(lambda f, e, a: None)
+            
+    _async_trace_state.refcount += 1
+
+def _disable_async_trace():
+    if hasattr(_async_trace_state, 'refcount') and _async_trace_state.refcount > 0:
+        _async_trace_state.refcount -= 1
+        if _async_trace_state.refcount == 0:
+            if _async_trace_state.old_trace is None:
+                _sys.settrace(None)
+            else:
+                _sys.settrace(_async_trace_state.old_trace)
 
 class _MultiplexingStdout:
     def __init__(self, original_stdout):
@@ -282,7 +306,7 @@ def watch(func=None, *, track_time=True, truncate_len=50, max_depth=None, export
 
     # ── Variable state tracking (sys.settrace) ──────────────────
 
-    def _make_var_tracer(depth):
+    def _make_var_tracer(depth, is_async=False):
         """Create a sys.settrace local tracer for variable state tracking."""
         var_prefix = _continuation(depth) + "│   "
         prev_locals = [None]  # None = first snapshot not yet captured
@@ -314,6 +338,9 @@ def watch(func=None, *, track_time=True, truncate_len=50, max_depth=None, export
                         if k not in prev_locals[0] or prev_locals[0][k] != v:
                             _log(f"{var_prefix}· {k} = {v}")
                     prev_locals[0] = current
+            return local_tracer
+
+        if is_async:
             return local_tracer
 
         def global_tracer(frame, event, arg):
@@ -361,9 +388,16 @@ def watch(func=None, *, track_time=True, truncate_len=50, max_depth=None, export
                     _tracemalloc.start()
                 mem_start = _tracemalloc.get_traced_memory()[0]
 
-            # track_vars not supported for async (sys.settrace is thread-level)
+            if track_vars and not export_json:
+                coro = func(*args, **kwargs)
+                _enable_async_trace()
+                if hasattr(coro, 'cr_frame') and coro.cr_frame is not None:
+                    coro.cr_frame.f_trace = _make_var_tracer(depth, is_async=True)
+            else:
+                coro = func(*args, **kwargs)
+
             try:
-                result = await func(*args, **kwargs)
+                result = await coro
                 mem_diff = _tracemalloc.get_traced_memory()[0] - mem_start if track_memory and mem_start is not None else None
                 if print_token:
                     _print_capturer_active.reset(print_token)
@@ -378,6 +412,8 @@ def watch(func=None, *, track_time=True, truncate_len=50, max_depth=None, export
                 _trace_return(depth, start_time, arg_dict, exc=e, mem_diff=mem_diff)
                 raise
             finally:
+                if track_vars and not export_json:
+                    _disable_async_trace()
                 _log_buffer.reset(buffer_token)
                 if old_buffer is not None:
                     old_buffer.extend(my_buffer)
