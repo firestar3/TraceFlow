@@ -92,7 +92,7 @@ def is_enabled():
 
 # ── Decorator ───────────────────────────────────────────────────
 
-def watch(func=None, *, track_time=True, truncate_len=50, max_depth=None, export_path=None, track_vars=False, capture_prints=False, track_memory=False, logger=None, log_level=None, mask_args=None, track_return=True, assert_return=None):
+def watch(func=None, *, track_time=True, truncate_len=50, max_depth=None, export_path=None, track_vars=False, capture_prints=False, track_memory=False, logger=None, log_level=None, mask_args=None, track_return=True, assert_return=None, export_json=False, thread_safe=False):
     """
     Decorator that traces function calls, producing an indented call tree.
 
@@ -140,7 +140,8 @@ def watch(func=None, *, track_time=True, truncate_len=50, max_depth=None, export
                                  max_depth=max_depth, export_path=export_path, 
                                  track_vars=track_vars, capture_prints=capture_prints, 
                                  track_memory=track_memory, logger=logger, log_level=log_level,
-                                 mask_args=mask_args, track_return=track_return, assert_return=assert_return)
+                                 mask_args=mask_args, track_return=track_return, assert_return=assert_return,
+                                 export_json=export_json, thread_safe=thread_safe)
 
     # ── Helpers ─────────────────────────────────────────────────
 
@@ -186,37 +187,76 @@ def watch(func=None, *, track_time=True, truncate_len=50, max_depth=None, export
 
     # ── Trace entry / exit ──────────────────────────────────────
 
-    def _trace_call(args, kwargs, depth):
-        """Print the function call line and return start_time."""
+    def _get_masked_args(args, kwargs):
         mask_set = set(mask_args) if mask_args else set()
-        
         try:
             sig = inspect.signature(func)
             bound_args = sig.bind(*args, **kwargs)
             bound_args.apply_defaults()
             arg_dict = bound_args.arguments
             
-            formatted_args = []
+            res_dict = {}
             for k, v in arg_dict.items():
                 if k in mask_set:
-                    formatted_args.append(f"{k}='***'")
+                    res_dict[k] = '***'
                 else:
-                    formatted_args.append(f"{k}={_get_repr(v)}")
-            all_args = ", ".join(formatted_args)
+                    res_dict[k] = _get_repr(v)
+            return res_dict
         except Exception:
-            # Fallback if signature binding fails
-            pos_args = [_get_repr(a) for a in args]
-            kw_args = [f"{k}='***'" if k in mask_set else f"{k}={_get_repr(v)}" for k, v in kwargs.items()]
-            all_args = ", ".join(pos_args + kw_args)
-            
-        call_str = f"{func.__name__}({all_args})"
-        _log(f"{_prefix(depth)}{call_str}")
-        return _time.perf_counter() if track_time else None
+            res_dict = {f"pos_{i}": _get_repr(a) for i, a in enumerate(args)}
+            for k, v in kwargs.items():
+                res_dict[k] = '***' if k in mask_set else _get_repr(v)
+            return res_dict
 
-    def _trace_return(depth, start_time, result=None, exc=None, mem_diff=None):
-        """Print the return/exception line as the last child of the call."""
-        elapsed = f" [{_time.perf_counter() - start_time:.4f}s]" if (track_time and start_time) else ""
+    def _trace_call(args, kwargs, depth):
+        """Print the function call line and return (start_time, arg_dict)."""
+        arg_dict = _get_masked_args(args, kwargs)
         
+        if not export_json:
+            formatted_args = [f"{k}={v}" for k, v in arg_dict.items()]
+            all_args = ", ".join(formatted_args)
+            call_str = f"{func.__name__}({all_args})"
+            _log(f"{_prefix(depth)}{call_str}")
+            
+        return _time.perf_counter() if track_time else None, arg_dict
+
+    def _trace_return(depth, start_time, arg_dict, result=None, exc=None, mem_diff=None):
+        """Print the return/exception line as the last child of the call, or emit JSON."""
+        if export_json:
+            import json
+            import threading
+            import datetime
+            log_obj = {
+                "name": func.__name__,
+                "depth": depth,
+                "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                "thread_id": threading.get_ident(),
+                "args": arg_dict,
+            }
+            if track_time and start_time:
+                log_obj["duration_ms"] = (_time.perf_counter() - start_time) * 1000
+            if track_memory and mem_diff is not None:
+                log_obj["memory_diff_mb"] = mem_diff / 1024 / 1024
+            
+            if exc is not None:
+                log_obj["exception"] = type(exc).__name__
+                log_obj["exception_msg"] = str(exc)
+            else:
+                if assert_return is not None:
+                    try:
+                        if not assert_return(result):
+                            log_obj["assert_return_failed"] = True
+                    except Exception as e:
+                        log_obj["assert_return_error"] = str(e)
+                if not track_return:
+                    log_obj["return"] = "<hidden>"
+                else:
+                    log_obj["return"] = _get_repr(result)
+            
+            _log(json.dumps(log_obj))
+            return
+
+        elapsed = f" [{_time.perf_counter() - start_time:.4f}s]" if (track_time and start_time) else ""
         mem_str = ""
         if mem_diff is not None:
             if mem_diff >= 0:
@@ -304,13 +344,16 @@ def watch(func=None, *, track_time=True, truncate_len=50, max_depth=None, export
             old_buffer = _log_buffer.get()
             buffer_token = _log_buffer.set(my_buffer)
 
-            start_time = _trace_call(args, kwargs, depth)
+            start_time, arg_dict = _trace_call(args, kwargs, depth)
             token = _depth.set(depth + 1)
             
             print_token = None
             if capture_prints:
                 _ensure_stdout_hook()
-                print_token = _print_capturer_active.set((_log, _continuation(depth) + "│   "))
+                if export_json:
+                    print_token = _print_capturer_active.set((_log, ''))
+                else:
+                    print_token = _print_capturer_active.set((_log, _continuation(depth) + "│   "))
                 
             mem_start = None
             if track_memory:
@@ -325,14 +368,14 @@ def watch(func=None, *, track_time=True, truncate_len=50, max_depth=None, export
                 if print_token:
                     _print_capturer_active.reset(print_token)
                 _depth.reset(token)
-                _trace_return(depth, start_time, result=result, mem_diff=mem_diff)
+                _trace_return(depth, start_time, arg_dict, result=result, mem_diff=mem_diff)
                 return result
             except Exception as e:
                 mem_diff = _tracemalloc.get_traced_memory()[0] - mem_start if track_memory and mem_start is not None else None
                 if print_token:
                     _print_capturer_active.reset(print_token)
                 _depth.reset(token)
-                _trace_return(depth, start_time, exc=e, mem_diff=mem_diff)
+                _trace_return(depth, start_time, arg_dict, exc=e, mem_diff=mem_diff)
                 raise
             finally:
                 _log_buffer.reset(buffer_token)
@@ -356,13 +399,21 @@ def watch(func=None, *, track_time=True, truncate_len=50, max_depth=None, export
                 finally:
                     _depth.reset(token)
 
-            start_time = _trace_call(args, kwargs, depth)
+            if thread_safe:
+                my_buffer = []
+                old_buffer = _log_buffer.get()
+                buffer_token = _log_buffer.set(my_buffer)
+
+            start_time, arg_dict = _trace_call(args, kwargs, depth)
             token = _depth.set(depth + 1)
 
             print_token = None
             if capture_prints:
                 _ensure_stdout_hook()
-                print_token = _print_capturer_active.set((_log, _continuation(depth) + "│   "))
+                if export_json:
+                    print_token = _print_capturer_active.set((_log, ''))
+                else:
+                    print_token = _print_capturer_active.set((_log, _continuation(depth) + "│   "))
 
             mem_start = None
             if track_memory:
@@ -370,30 +421,38 @@ def watch(func=None, *, track_time=True, truncate_len=50, max_depth=None, export
                     _tracemalloc.start()
                 mem_start = _tracemalloc.get_traced_memory()[0]
 
-            if track_vars:
+            if track_vars and not export_json:
                 old_trace = _sys.gettrace()
                 _sys.settrace(_make_var_tracer(depth))
 
             try:
                 result = func(*args, **kwargs)
             except Exception as e:
-                if track_vars:
+                if track_vars and not export_json:
                     _sys.settrace(old_trace)
                 mem_diff = _tracemalloc.get_traced_memory()[0] - mem_start if track_memory and mem_start is not None else None
                 if print_token:
                     _print_capturer_active.reset(print_token)
                 _depth.reset(token)
-                _trace_return(depth, start_time, exc=e, mem_diff=mem_diff)
+                _trace_return(depth, start_time, arg_dict, exc=e, mem_diff=mem_diff)
                 raise
             else:
-                if track_vars:
+                if track_vars and not export_json:
                     _sys.settrace(old_trace)
                 mem_diff = _tracemalloc.get_traced_memory()[0] - mem_start if track_memory and mem_start is not None else None
                 if print_token:
                     _print_capturer_active.reset(print_token)
                 _depth.reset(token)
-                _trace_return(depth, start_time, result=result, mem_diff=mem_diff)
+                _trace_return(depth, start_time, arg_dict, result=result, mem_diff=mem_diff)
                 return result
+            finally:
+                if thread_safe:
+                    _log_buffer.reset(buffer_token)
+                    if old_buffer is not None:
+                        old_buffer.extend(my_buffer)
+                    else:
+                        for log_func, msg in my_buffer:
+                            log_func(msg)
         return sync_wrapper
 
 def watch_class(*args, **kwargs):
@@ -436,7 +495,7 @@ class watch_block:
 
     def __init__(self, name, *, track_time=True, truncate_len=50,
                  export_path=None, capture_prints=False, track_memory=False,
-                 logger=None, log_level=None):
+                 logger=None, log_level=None, export_json=False, thread_safe=False):
         self._name = name
         self._track_time = track_time
         self._truncate_len = truncate_len
@@ -445,6 +504,8 @@ class watch_block:
         self._track_memory = track_memory
         self._logger = logger
         self._log_level = log_level
+        self._export_json = export_json
+        self._thread_safe = thread_safe
 
     # ── internal helpers ────────────────────────────────────────
 
@@ -494,15 +555,27 @@ class watch_block:
 
         self._active = True
         self._depth = _depth.get()
-        self._log(f"{self._prefix(self._depth)}{self._name}")
+        
+        self._buffer_token = None
+        if self._thread_safe:
+            self._my_buffer = []
+            self._old_buffer = _log_buffer.get()
+            self._buffer_token = _log_buffer.set(self._my_buffer)
+
+        if not self._export_json:
+            self._log(f"{self._prefix(self._depth)}{self._name}")
+            
         self._depth_token = _depth.set(self._depth + 1)
 
         self._print_token = None
         if self._capture_prints:
             _ensure_stdout_hook()
-            self._print_token = _print_capturer_active.set(
-                (self._log, self._continuation(self._depth) + "│   ")
-            )
+            if self._export_json:
+                self._print_token = _print_capturer_active.set((self._log, ''))
+            else:
+                self._print_token = _print_capturer_active.set(
+                    (self._log, self._continuation(self._depth) + "│   ")
+                )
 
         self._mem_start = None
         if self._track_memory:
@@ -534,10 +607,40 @@ class watch_block:
 
         _depth.reset(self._depth_token)
 
-        ret_prefix = self._continuation(self._depth) + "└── "
-        if exc_val is not None:
-            self._log(f"{ret_prefix}{type(exc_val).__name__}: {str(exc_val)}{elapsed}{mem_str}")
+        if self._export_json:
+            import json
+            import threading
+            import datetime
+            log_obj = {
+                "name": self._name,
+                "depth": self._depth,
+                "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                "thread_id": threading.get_ident(),
+                "args": {},
+            }
+            if self._track_time and self._start_time:
+                log_obj["duration_ms"] = (_time.perf_counter() - self._start_time) * 1000
+            if self._track_memory and self._mem_start is not None:
+                mem_diff = _tracemalloc.get_traced_memory()[0] - self._mem_start
+                log_obj["memory_diff_mb"] = mem_diff / 1024 / 1024
+            if exc_val is not None:
+                log_obj["exception"] = type(exc_val).__name__
+                log_obj["exception_msg"] = str(exc_val)
+            
+            self._log(json.dumps(log_obj))
         else:
-            self._log(f"{ret_prefix}done{elapsed}{mem_str}")
+            ret_prefix = self._continuation(self._depth) + "└── "
+            if exc_val is not None:
+                self._log(f"{ret_prefix}{type(exc_val).__name__}: {str(exc_val)}{elapsed}{mem_str}")
+            else:
+                self._log(f"{ret_prefix}done{elapsed}{mem_str}")
+
+        if self._thread_safe:
+            _log_buffer.reset(self._buffer_token)
+            if self._old_buffer is not None:
+                self._old_buffer.extend(self._my_buffer)
+            else:
+                for log_func, msg in self._my_buffer:
+                    log_func(msg)
 
         return False  # do not suppress exceptions

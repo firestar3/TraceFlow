@@ -36,6 +36,8 @@ fibonacci(3)
 | **Python Logging** | `logger=my_logger` to emit trace lines through the standard `logging` module |
 | **Data Masking** | `mask_args=['password']` and `track_return=False` to hide sensitive data in traces |
 | **Return Assertions** | `assert_return=lambda x: x > 0` to log warnings for invalid returns |
+| **JSON Export** | `export_json=True` to output structured JSON logs instead of text trees |
+| **Multi-Threading** | `thread_safe=True` to buffer output and prevent interleaving |
 | **Class Decorator** | `@watch_class` to automatically wrap all methods in a class |
 | **Context Manager** | `with traceflow.watch_block("name"):` to trace arbitrary code blocks |
 
@@ -555,8 +557,6 @@ Print Test
 └── done [0.0001s]
 ```
 
----
-
 ## Configuration Reference
 
 | Parameter | Type | Default | Description |
@@ -573,6 +573,8 @@ Print Test
 | `mask_args` | `list` | `None` | List of argument names to replace with `'***'` in trace |
 | `track_return` | `bool` | `True` | Set to `False` to log `<hidden>` instead of the actual return value |
 | `assert_return` | `callable` | `None` | Function to validate the return value. Logs a `[WARNING]` if it fails |
+| `export_json` | `bool` | `False` | Outputs structured JSON logs instead of visual text trees |
+| `thread_safe` | `bool` | `False` | Buffers output per-thread and prints atomically to prevent interleaving |
 
 ### Global Functions
 

@@ -285,6 +285,40 @@ def process_positive_only(val):
 process_positive_only(10)
 process_positive_only(-5)
 
+# ── 20. JSON Export ─────────────────────────────────────────────
+print("\n" + "=" * 55)
+print("  20. JSON EXPORT")
+print("=" * 55)
+
+@watch(export_json=True)
+def parse_data(item_id, debug=False):
+    if not debug:
+        return {"status": "ok"}
+    raise ValueError("Debug failed")
+
+parse_data(42)
+try:
+    parse_data(99, debug=True)
+except ValueError:
+    pass
+
+# ── 21. Multi-Threading Support ─────────────────────────────────
+print("\n" + "=" * 55)
+print("  21. MULTI-THREADING (thread_safe=True)")
+print("=" * 55)
+
+import concurrent.futures
+
+@watch(thread_safe=True)
+def threaded_worker(worker_id):
+    import time
+    time.sleep(0.01)
+    return f"Worker {worker_id} done"
+
+with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+    futures = [executor.submit(threaded_worker, i) for i in range(3)]
+    concurrent.futures.wait(futures)
+
 print("\n" + "=" * 55)
 print("  ALL TESTS COMPLETE")
 print("=" * 55)
