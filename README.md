@@ -332,7 +332,7 @@ sum_list([10, 20, 30])
 └── return 60 [0.0001s]
 ```
 
-> **Note:** Variable tracking adds overhead and is best used for targeted debugging, not production code.
+> **Note:** Variable tracking adds overhead and is best used for targeted debugging, not production code. TraceFlow cleanly supports variable tracking in **both synchronous and asynchronous (`async`/`await`) functions**, even under heavy concurrency.
 
 #### Selective Variable Tracking
 
