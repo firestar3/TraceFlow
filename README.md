@@ -557,6 +557,48 @@ Print Test
 └── done [0.0001s]
 ```
 
+---
+
+### 17. JSON Export (Observability)
+
+By default, TraceFlow prints visual text trees. If you want to integrate with observability tools like ELK, DataDog, or custom log parsers, you can enable `export_json=True`. This converts the output into structured JSON Lines (JSONL). 
+
+```python
+@watch(export_json=True)
+def parse_data(item_id, debug=False):
+    if not debug:
+        return {"status": "ok"}
+    raise ValueError("Debug failed")
+
+parse_data(42)
+```
+
+```json
+{"name": "parse_data", "depth": 0, "timestamp": "2026-06-03T22:18:19.322+00:00", "thread_id": 16076, "args": {"item_id": "42", "debug": "False"}, "duration_ms": 229.4, "return": "{'status': 'ok'}"}
+```
+
+---
+
+### 18. Multi-Threading Support
+
+TraceFlow natively handles `asyncio` concurrency seamlessly. However, if you use standard Python threading (e.g., `ThreadPoolExecutor`), multiple threads printing to `stdout` at the same time can cause interleaved text.
+
+To fix this, pass `thread_safe=True`. TraceFlow will use `contextvars` to buffer the entire call tree in memory for that specific thread, and only print it atomically once the root function completes.
+
+```python
+import concurrent.futures
+from traceflow import watch
+
+@watch(thread_safe=True)
+def threaded_worker(worker_id):
+    return f"Worker {worker_id} done"
+
+with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+    futures = [executor.submit(threaded_worker, i) for i in range(3)]
+```
+
+---
+
 ## Configuration Reference
 
 | Parameter | Type | Default | Description |
