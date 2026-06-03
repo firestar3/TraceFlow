@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "traceflow-py"
-version = "1.8.0"
+version = "1.8.1"
 description = "A lightweight decorator for visually tracing Python function calls with indented call trees, timing, variable tracking, and async support."
 readme = "README.md"
 license = { text = "MIT License" }
