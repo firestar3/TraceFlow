@@ -1,6 +1,6 @@
 # TraceFlow
 
-![Downloads](https://img.shields.io/badge/downloads-1k+-3776AB?logo=pypi&logoColor=white)
+![Non-Mirrored-Downloads](https://img.shields.io/badge/downloads-1600+-3776AB?logo=pypi&logoColor=white)
 
 **TraceFlow** is a lightweight, zero-dependency Python decorator library for visually tracing function execution. It renders beautiful, indented call trees directly to your console — making debugging recursive, nested, and async code effortless.
 
